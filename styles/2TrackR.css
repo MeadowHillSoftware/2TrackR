@@ -1,0 +1,11 @@
+.results-table {
+    background-color: rgb(255,255,255);
+    border: 1px solid black;
+    border-spacing: 0px;
+    text-align: center;
+}
+
+.link-cell {
+	color: blue;
+	text-decoration: underline;
+}

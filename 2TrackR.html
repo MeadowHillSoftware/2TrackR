@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>2TrackR</title>
+        <link rel="stylesheet" href="styles/2TrackR.css">
+    </head>
+    <body id="body">
+        <div>
+            <span>Enter Review File (.json): </span>
+            <input type="file" id="reviews"/>
+        </div>
+        <br>
+        <br>
+        <br>
+        <table id="search-table">
+            <tr>
+                <td></td>
+                <td>
+                    Search Reviews
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    Creator
+                </td>
+                <td>
+                    <input type="text" id="artist-text"/>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    Collection
+                </td>
+                <td>
+                    <input type="text" id="album-text"/>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    Work
+                </td>
+                <td>
+                    <input type="text" id="song-text"/>
+                </td>
+            </tr>
+            <tr id="button-row">
+                <td>
+                    Submit 
+                </td>
+                <td>
+                    <button id="search-button">Search</button>
+                </td>
+            </tr>
+        </table>
+        <br>
+        <br>
+        <br>
+        <table id="input-table">
+            <tr>
+                <td></td>
+                <td>
+                    Add Reviews
+                </td>
+            </tr>
+            <tr>
+               <td>
+                   Medium
+               </td> 
+               <td>
+                    <input type="radio" name="medium" value="music" checked>Music</input><input type="radio" name="medium" value="literature">Literature</input>
+               </td>
+            </tr>
+            <tr>
+                <td>
+                    Creator
+                </td>
+                <td>
+                    <input type="text" id="artist-addition"/>
+                </td>
+            </tr>
+            <tr>
+                <td>
+                    Collection
+                </td>
+                <td>
+                    <input type="text" id="album-addition"/>
+                </td>
+            </tr>
+            <tr>
+               <td>
+                   Type
+               </td> 
+               <td>
+                    <input type="radio" name="type" value="regular" checked>Regular</input><input type="radio" name="type" value="compilation">Compilation/Anthology</input>
+               </td>
+            </tr>
+            <tr>
+                <td>
+                    Work
+                </td>
+                <td>
+                    <input type="text" id="song-addition"/>
+                </td>
+            </tr>
+            <tr>
+               <td>
+                   Review
+               </td> 
+               <td>
+                    <input type="radio" name="review" value="yes" checked>Yes</input><input type="radio" name="review" value="no">No</input>
+               </td>
+            </tr>
+            <tr id="add-button-row">
+                <td>
+                    Submit 
+                </td>
+                <td>
+                    <button id="add-button">Add</button>
+                </td>
+            </tr>
+        </table>
+        <div id="results-div">
+            <table>
+            </table>
+        </div>
+        <script src="./scripts/jquery-3.1.1.js"></script>
+        <script src="./scripts/2TrackR.js"></script>
+    </body>
+</html>
