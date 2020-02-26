@@ -2,8 +2,6 @@
 
 var o2TrackR = {};
 
-//REMOVE CASE SENSITIVITY
-
 o2TrackR.addAnthologyAuthors = function() {
     var oLit = o2TrackR.oLit;
     var aAnthologies = Object.keys(oLit["Various Authors"]);
@@ -114,6 +112,7 @@ o2TrackR.parsePeanuts = function() {
 
 o2TrackR.addMainEventListeners = function() {
     $('#reviews').on('change', o2TrackR.handleFileUpload);
+    $('#field-radio').on('change', o2TrackR.handleRadioChange);
     $('#search-button').on('click', o2TrackR.handleSearchButtonClick);
     $('#add-button').on('click', o2TrackR.handleAddButtonClick);
 };
@@ -173,6 +172,18 @@ o2TrackR.allSuccessRate = function() {
     return [iPassed, iTotal];
 };
 
+o2TrackR.arePartialsNeeded = function(aExacts, aPartials) {
+	var bNeeded = false;
+	if (aExacts.length === 0 && aPartials.length !== 0) {
+		bNeeded = true;
+	} else if (aExacts.length !== 0 && aPartials.length !== 0) {
+		if (aPartials[0] >= 1.0) {
+			bNeeded = true;
+		}
+	}
+	return bNeeded;
+};
+
 o2TrackR.artistSuccessRate = function(sArtist) {
     var oMusic = o2TrackR.oCurrentReviews;
     var oArtist = oMusic[sArtist];
@@ -182,7 +193,23 @@ o2TrackR.artistSuccessRate = function(sArtist) {
     var oTracks = [];
     for (var a = 0; a < aAlbums.length; a++) {
         var sAlbum = aAlbums[a];
-        var oSongs = oArtist[sAlbum];
+        if (sArtist === o2TrackR.sVarious) {
+			var oAlbum = oArtist[sAlbum];
+			var aCompArtists = Object.keys(oAlbum);
+			var oSongs = {};
+			for (var ca = 0; ca < aCompArtists.length; ca++) {
+				var sCompArtist = aCompArtists[ca];
+				var oCompArtist = oAlbum[sCompArtist];
+				var aArtistSongs = Object.keys(oCompArtist);
+				for (var as = 0; as < aArtistSongs.length; as++) {
+					var sTrack = aArtistSongs[as];
+					var sReview = oCompArtist[sTrack];
+					oSongs[sTrack] = sReview;
+				}
+			}
+		} else {
+			var oSongs = oArtist[sAlbum];
+		}
         var aPieces = Object.keys(oSongs);
         for (var s = 0; s < aPieces.length; s++) {
             var sSong = aPieces[s];
@@ -218,37 +245,260 @@ o2TrackR.calculatePercentage = function(iPassed, iTotal) {
     return sWhole;
 };
 
+o2TrackR.calculateRelevance = function(sScore, iDivisor) {
+	var aStrings = sScore.split(" ");
+	var iFirst = Number(aStrings[0]);
+	var iSecond = Number(aStrings[1]);
+	var iQuotient = iSecond / iDivisor;
+	var iRelevance = iFirst + iQuotient;
+	return iRelevance;
+};
+
+o2TrackR.deduplicateExacts = function(oResults) {
+	var aArtists = Object.keys(oResults);
+	if (aArtists.indexOf(o2TrackR.sVarious) !== -1) {
+		var aCompilations = oResults[o2TrackR.sVarious];
+		var oMusic = o2TrackR.oCurrentReviews;
+		for (var c = 0; c < aCompilations.length; c++) {
+			var sCompilation = aCompilations[c];
+			var oCompilation = oMusic[o2TrackR.sVarious][sCompilation];
+			var aCompArtists = Object.keys(oCompilation);
+			for (var ca = 0; ca < aCompArtists.length; ca++) {
+				var sCompArtist = aCompArtists[ca];
+				var aDiscography = oResults[sCompArtist];
+				var iIndex = aDiscography.indexOf(sCompilation);
+				oResults[sCompArtist].splice(iIndex, 1);
+			}
+		}
+	}
+	return oResults;
+};
+
+o2TrackR.deduplicatePartials = function(oResults) {
+	var aScores = Object.keys(oResults);
+	var oMusic = o2TrackR.oCurrentReviews;
+	for (var s = 0; s < aScores.length; s++) {
+		var iScore = aScores[s];
+		var oScoreObject = oResults[iScore];
+		var aArtists = Object.keys(oScoreObject);
+		if (aArtists.indexOf(o2TrackR.sVarious) !== -1) {
+			var aCompilations = oScoreObject[o2TrackR.sVarious];
+			for (var c = 0; c < aCompilations.length; c++) {
+				var sCompilation = aCompilations[c];
+				var oCompilation = oMusic[o2TrackR.sVarious][sCompilation];
+				var aCompArtists = Object.keys(oCompilation);
+				for (var ca = 0; ca < aCompArtists.length; ca++) {
+					var sCompArtist = aCompArtists[ca];
+					var aDiscography = oResults[iScore][sCompArtist];
+					var iIndex = aDiscography.indexOf(sCompilation);
+					var aAlbumList = oResults[iScore][sCompArtist];
+					aAlbumList.splice(iIndex, 1);
+					if (aAlbumList.length === 0) {
+						delete oResults[iScore][sCompArtist];
+					}
+				}
+			}
+		}
+	}
+	return oResults;
+};
+
+o2TrackR.deduplicatePercentages = function(oResults) {
+	var aArtists = Object.keys(oResults);
+	var oMusic = o2TrackR.oCurrentReviews;
+	var oVarious = oMusic[o2TrackR.sVarious];
+	var aCompilations = Object.keys(oVarious);
+	var oNewAlbums = {};
+	for (var a = 0; a < aArtists.length; a++) {
+		var sArtist = aArtists[a];
+		var aDiscography = oResults[sArtist];
+		for (var d = 0; d < aDiscography.length; d++) {
+			var aNewArtists = Object.keys(oNewAlbums);
+			var sAlbum = aDiscography[d];
+			if (aCompilations.indexOf(sAlbum) !== -1) {
+				var oCompilation = oVarious[sAlbum];
+				var aTrackArtists = Object.keys(oCompilation);
+				if (aTrackArtists.indexOf(sArtist) === -1) {
+					if (aNewArtists.indexOf(sArtist) === -1) {
+						oNewAlbums[sArtist] = [];
+					}
+					oNewAlbums[sArtist].push(sAlbum);
+				}
+			} else {
+				if (aNewArtists.indexOf(sArtist) === -1) {
+					oNewAlbums[sArtist] = [];
+				}
+				oNewAlbums[sArtist].push(sAlbum);
+			}
+		}
+	}
+	return oNewAlbums;
+};
+
+o2TrackR.deduplicateSongExacts = function(oResults) {
+	var aArtists = Object.keys(oResults);
+	if (aArtists.indexOf(o2TrackR.sVarious) !== -1) {
+		var aCompilations = Object.keys(oResults[o2TrackR.sVarious]);
+		var oMusic = o2TrackR.oCurrentReviews;
+		for (var c = 0; c < aCompilations.length; c++) {
+			var sCompilation = aCompilations[c];
+			var oCompilation = oMusic[o2TrackR.sVarious][sCompilation];
+			var aCompArtists = Object.keys(oCompilation);
+			for (var ca = 0; ca < aCompArtists.length; ca++) {
+				var sCompArtist = aCompArtists[ca];
+				if (aArtists.indexOf(sCompArtist) !== -1) {
+					var aDiscography = Object.keys(oResults[sCompArtist]);
+					delete oResults[sCompArtist][sCompilation];
+				}
+			}
+		}
+	}
+	return oResults;
+};
+
+o2TrackR.deleteUnneededPartials = function(oPartials) {
+    var aFloats = Object.keys(oPartials);
+    aFloats.sort(function(a, b){return b-a});
+    if (aFloats[0] >= 1.0) {
+		for (var r = 0; r < aFloats.length; r++) {
+			var iRelevance = aFloats[r];
+			if (iRelevance < 1.0) {
+				delete oPartials[iRelevance];
+			}
+		}
+	}
+	return oPartials
+};
+
+o2TrackR.determineRelevance = function(sLowInput, sLowResult) {
+	var aLowInput = o2TrackR.removeArticles(sLowInput);
+	var aLowResult = o2TrackR.removeArticles(sLowResult);
+	var iExacts = 0;
+	var iPartials = 0;
+	for (var i = 0; i < aLowInput.length; i++) {
+		var sInputWord = aLowInput[i];
+		for (var r = 0; r < aLowResult.length; r++) {
+			var sResultWord = aLowResult[r];
+			if (sInputWord === sResultWord) {
+				iExacts++;
+			} else {
+				if (sResultWord.indexOf(sInputWord) !== -1) {
+					iPartials++;
+				} else if (sInputWord.indexOf(sResultWord) !== -1) {
+					iPartials++;
+				}
+			}
+		}
+	}
+	var sRelevance = "0";
+	if (iExacts !== 0 || iPartials !== 0) {
+		sRelevance = String(iExacts) + " " + String(iPartials);
+	}
+	return sRelevance;
+};
+
 o2TrackR.displayAlbum = function(aNumbers, sArtist, sAlbum) {
     var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
-    sPercent = sPercent + "%";
-    var artist = $('<td></td>').append(sArtist).addClass('results-table');
-    var album = $('<td></td>').append(sAlbum).addClass('results-table');
-    var percent = $('<td></td>').append(sPercent).addClass('results-table');
-    var row = $('<tr></tr>');
-    row.append(artist)
-        .append(album)
-        .append(percent);
+    var artist = $('<td></td>').append(sArtist)
+		.addClass('results-table')
+		.addClass('link-cell')
+		.hover(o2TrackR.handleLinkHover)
+		.on('click', o2TrackR.handleArtistClick);
     var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
     var titleAlbum = $(o2TrackR.sCollection).addClass('results-table');
     var titlePercent = $('<th>Percentage</th>').addClass('results-table');
+    var oMusic = o2TrackR.oCurrentReviews;
+    var oAlbum = oMusic[sArtist][sAlbum];
+    if (sArtist !== o2TrackR.sVarious) {
+		var aSongs = Object.keys(oAlbum);
+	} else {
+		var titleTA = $(o2TrackR.sContributor).addClass('results-table');
+		var aSongs = o2TrackR.getCompilationSongs(oAlbum);
+	}
+    var titleSong = $(o2TrackR.sWork).addClass('results-table');
+    var titleReview = $('<th>Review</th>').addClass('results-table');
     var headerRow = $('<tr></tr>');
     headerRow.append(titleArtist)
         .append(titleAlbum)
         .append(titlePercent);
+    if (sArtist === o2TrackR.sVarious) {
+		headerRow.append(titleTA);
+	}
+	headerRow.append(titleSong)
+        .append(titleReview);
     var header = $('<thead></thead>');
     header.append(headerRow);
     var table = $('<table></table>')
         .addClass('results-table');
+	for (var s = 0; s < aSongs.length; s++) {
+		var sSong = aSongs[s];
+		var row = $('<tr></tr>');
+		var one = $('<td></td>').addClass('results-table');
+		var two = $('<td></td>').addClass('results-table');
+		var three = $('<td></td>').addClass('results-table');
+		var album = $('<td></td>')
+			.addClass('results-table')
+			.append(sAlbum);
+		var percent = $('<td></td>')
+			.addClass('results-table')
+			.addClass('link-cell')
+			.hover(o2TrackR.handleLinkHover)
+			.on('click', o2TrackR.handlePercentageClick)
+			.append(sPercent);
+	    if (sArtist === o2TrackR.sVarious) {
+			var sTrackArtist = o2TrackR.getTrackArtist(oAlbum, sSong);
+			var ta = $('<td></td>')
+				.append(sTrackArtist)
+				.addClass('results-table')
+				.addClass('link-cell')
+				.hover(o2TrackR.handleLinkHover)
+				.on('click', o2TrackR.handleArtistClick);
+		}
+		var song = $('<td></td>')
+			.addClass('results-table')
+			.addClass('link-cell')
+			.hover(o2TrackR.handleLinkHover)
+			.on('click', o2TrackR.handleSongClick)
+			.append(sSong);
+		var sReview = o2TrackR.getReview(sArtist, oAlbum, sSong);
+		var review = $('<td></td>')
+			.addClass('results-table')
+			.append(sReview);
+		if (s === 0) {
+			row.append(artist)
+				.append(album)
+				.append(percent);
+		    if (sArtist === o2TrackR.sVarious) {
+				row.append(ta);
+			}
+			row.append(song)
+				.append(review);
+		} else {
+			row.append(one)
+				.append(two)
+				.append(three);
+		    if (sArtist === o2TrackR.sVarious) {
+				row.append(ta);
+			}
+			row.append(song)
+				.append(review);
+		}
+		table.append(row);
+	}
+    var lineBreak = $('</br>');
+    $('#results-div').empty()
+		.append(lineBreak)
+		.append(table);
     table.append(header)
         .append(row);
+    var lineBreak = $('</br>');
     var div = $('#results-div');
-    div.append(table);
+    div.append(lineBreak).append(table);
 };
 
 o2TrackR.displayAll = function() {
     var aNumbers = o2TrackR.allSuccessRate();
     var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
-    sPercent = sPercent + "%";
     var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
     var titleTotal = $('<th>Percent</th>').addClass('results-table');
     var headerRow = $('<tr></tr>');
@@ -259,7 +509,11 @@ o2TrackR.displayAll = function() {
     var artist = $('<td>All Artists</td>');
     artist.addClass('results-table');
     var total = $('<td></td>');
-    total.append(sPercent).addClass('results-table');
+    total.append(sPercent)
+		.addClass('link-cell')
+		.hover(o2TrackR.handleLinkHover)
+		.on('click', o2TrackR.handlePercentageClick)
+		.addClass('results-table');
     var row = $('<tr></tr>');
     row.append(artist)
         .append(total);
@@ -267,46 +521,62 @@ o2TrackR.displayAll = function() {
         .addClass('results-table');
     table.append(header)
         .append(row);
-    $('#results-div').append(table);
+    var lineBreak = $('</br>');
+    $('#results-div').append(lineBreak).append(table);
 };
 
 o2TrackR.displayArtist = function(sArtist) {
 	var sLowInput = sArtist.toLowerCase();
     var oMusic = o2TrackR.oCurrentReviews;
-	var aArtists = Object.keys(oMusic);
     var aNumbers = o2TrackR.artistSuccessRate(sArtist);
     var sOverall = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
-    sOverall = sOverall + "%";
     var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
     var titleTotal = $('<th>Percent</th>').addClass('results-table');
     var titleAlbum = $(o2TrackR.sCollection).addClass('results-table');
     var titlePercent = $('<th>Percent</th>').addClass('results-table');
+    if (sArtist === o2TrackR.sVarious) {
+		var titleTA = $('<th>Track Artist</th>').addClass('results-table');
+	}
     var titleSong = $(o2TrackR.sWork).addClass('results-table');
     var titleReview = $('<th>Review</th>').addClass('results-table');
     var headerRow = $('<tr></tr>');
     headerRow.append(titleArtist)
         .append(titleTotal)
         .append(titleAlbum)
-        .append(titlePercent)
-        .append(titleSong)
+        .append(titlePercent);
+    if (sArtist === o2TrackR.sVarious) {
+		headerRow.append(titleTA);
+	}
+    headerRow.append(titleSong)
         .append(titleReview);
     var header = $('<thead></thead>');
     header.append(headerRow);
     var artist = $('<td></td>');
-    artist.append(sArtist).addClass('results-table');
+    artist.append(sArtist)
+		.addClass('results-table')
+		.attr('id', 'displayed-artist');
     var total = $('<td></td>');
-    total.append(sOverall).addClass('results-table');
+    total.append(sOverall).addClass('results-table')
+		.addClass('link-cell')
+		.hover(o2TrackR.handleLinkHover)
+		.on('click', o2TrackR.handlePercentageClick);
     var row = $('<tr></tr>');
     var one = $('<td></td>').addClass('results-table');
     var two = $('<td></td>').addClass('results-table');
     var three = $('<td></td>').addClass('results-table');
     var four = $('<td></td>').addClass('results-table');
+    if (sArtist === o2TrackR.sVarious) {
+		var five = $('<td></td>').addClass('results-table');
+	}
     row.append(artist)
         .append(total)
         .append(one)
         .append(two)
         .append(three)
         .append(four);
+    if (sArtist === o2TrackR.sVarious) {
+		row.append(five);
+	}
     var table = $('<table></table>')
         .addClass('results-table');
     table.append(header)
@@ -320,16 +590,19 @@ o2TrackR.displayArtist = function(sArtist) {
         if (aCompilations.indexOf(sAlbum) !== -1) {
             var oCompilation = oVarious[sAlbum];
             var aCompArtists = Object.keys(oCompilation);
-            if (aCompArtists.indexOf(sArtist) !== -1) {
+            if (aCompArtists.indexOf(sArtist) !== -1 || sArtist === o2TrackR.sVarious) {
                 aNumbers = o2TrackR.albumSuccessRate(o2TrackR.sVarious, sAlbum);
             }
         } else {
             aNumbers = o2TrackR.albumSuccessRate(sArtist, sAlbum);
         }
         var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
-        sPercent = sPercent + "%";
         var oAlbum = oArtist[sAlbum];
-        var aSongs = Object.keys(oAlbum);
+	    if (sArtist !== o2TrackR.sVarious) {
+			var aSongs = Object.keys(oAlbum);
+		} else {
+			var aSongs = o2TrackR.getCompilationSongs(oAlbum);
+		}
         for (var s = 0; s < aSongs.length; s++) {
             var sSong = aSongs[s];
             var row = $('<tr></tr>');
@@ -338,15 +611,33 @@ o2TrackR.displayArtist = function(sArtist) {
             three = $('<td></td>').addClass('results-table');
             four = $('<td></td>').addClass('results-table');
             var album = $('<td></td>')
+                .append(sAlbum)
                 .addClass('results-table')
-                .append(sAlbum);
+				.addClass('link-cell')
+				.hover(o2TrackR.handleLinkHover)
+				.on('click', o2TrackR.handleAlbumClick);
             var percent = $('<td></td>')
                 .addClass('results-table')
+				.addClass('link-cell')
+				.hover(o2TrackR.handleLinkHover)
+				.on('click', o2TrackR.handlePercentageClick)
                 .append(sPercent);
+		    if (sArtist === o2TrackR.sVarious) {
+				var sTrackArtist = o2TrackR.getTrackArtist(oAlbum, sSong);
+				var ta = $('<td></td>')
+					.append(sTrackArtist)
+					.addClass('results-table')
+					.addClass('link-cell')
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handleArtistClick);
+			}
             var song = $('<td></td>')
                 .addClass('results-table')
+				.addClass('link-cell')
+				.hover(o2TrackR.handleLinkHover)
+				.on('click', o2TrackR.handleSongClick)
                 .append(sSong);
-            var sReview = oAlbum[sSong];
+			var sReview = o2TrackR.getReview(sArtist, oAlbum, sSong);
             var review = $('<td></td>')
                 .addClass('results-table')
                 .append(sReview);
@@ -354,15 +645,21 @@ o2TrackR.displayArtist = function(sArtist) {
                 row.append(one)
                     .append(two)
                     .append(album)
-                    .append(percent)
-                    .append(song)
+                    .append(percent);
+			    if (sArtist === o2TrackR.sVarious) {
+					row.append(ta);
+				}
+                row.append(song)
                     .append(review);
             } else {
                 row.append(one)
                     .append(two)
                     .append(three)
                     .append(four)
-                    .append(song)
+			    if (sArtist === o2TrackR.sVarious) {
+					row.append(ta);
+				}
+                row.append(song)
                     .append(review);
             }
             table.append(row);
@@ -537,69 +834,157 @@ o2TrackR.displayFoundSongs = function(oResults) {
 };
 
 o2TrackR.findAlbum = function(sAlbum) {
+	var oResults = o2TrackR.returnAlbum(sAlbum);
+	var oExacts = oResults["exact"];
+	oExacts = o2TrackR.deduplicateExacts(oExacts);
+	var oPartials = oResults["partial"];
+	oPartials = o2TrackR.deduplicatePartials(oPartials);
+    var titleResult = $('<th>Exact Matches</th>')
+        .addClass('results-table');
+	var resultRow = $('<tr></tr>');
+    var resultHeader = $('<thead></thead>');
+    var table = $('<table></table>')
+        .addClass('results-table');
+    var tbody = $('<tbody></tbody>');
+    var partialResult = $('<th>Partial Matches</th>')
+	    .addClass('results-table');
+	var partialRow = $('<tr></tr>');
+	var partialHeader = $('<thead></thead>');
+    var partialTable = $('<table></table>')
+        .addClass('results-table');
+    var partialTbody = $('<tbody></tbody>');
     var oMusic = o2TrackR.oCurrentReviews;
-    var aArtists = Object.keys(oMusic);
-    var sLowInput = sAlbum.toLowerCase();
-    var oResults = {};
-    for (var a = 0; a < aArtists.length; a++) {
-        var sArtist = aArtists[a];
-        var oAlbums = oMusic[sArtist];
-        var aRecords = Object.keys(oAlbums);
-        for (var r = 0; r < aRecords.length; r++) {
-            var sRecord = aRecords[r];
-            var sLowResult = sRecord.toLowerCase();
-            if (sLowResult.indexOf(sLowInput) !== -1) {
-                var aKeys = Object.keys(oResults);
-                if (aKeys.indexOf(sArtist) === -1) {
-                    oResults[sArtist] = [sRecord];
-                } else {
-                    oResults[sArtist].push(sRecord);
-                }
-            }
-        }
-    }
-    var aCompilations = oResults[o2TrackR.sVarious];
-    if (aCompilations !== undefined) {
-        for (var c = 0; c < aCompilations.length; c++) {
-            var sCompilation = aCompilations[c];
-            var oCompilation = oMusic[o2TrackR.sVarious][sCompilation];
-            var aCompArtists = Object.keys(oCompilation);
-            for (var ca = 0; ca < aCompArtists.length; ca++) {
-                var sCompArtist = aCompArtists[ca];
-                var aDiscography = oResults[sCompArtist];
-                var aFiltered = [];
-                for (var d = 0; d < aDiscography.length; d++) {
-                    var sDisc = aDiscography[d];
-                    if (sDisc !== sCompilation) {
-                        aFiltered.push(sDisc);
-                    }
-                }
-                if (aFiltered.length === 0) {
-                    delete oResults[sCompArtist];
-                } else {
-                    oResults[sCompArtist] = aFiltered;
-                }
-            }
-        }
-    }
-    o2TrackR.displayFoundAlbums(oResults);
+    var aExacts = Object.keys(oExacts);
+	if (aExacts.length === 0) {
+		resultRow.append(titleResult);
+		resultHeader.append(resultRow);
+		var emptyRow = $('<tr></tr>');
+		var emptyCell = $('<td>no exact matches</td>').addClass('results-table');
+		emptyRow.append(emptyCell);
+		tbody.append(emptyRow);
+		table.append(tbody);
+	} else if (aExacts.length !== 0) {
+	    var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
+	    var titleAlbum = $(o2TrackR.sCollection).addClass('results-table');
+	    var titlePercent = $('<th>Percent</th>').addClass('results-table');
+	    var headerRow = $('<tr></tr>');
+	    headerRow.append(titleArtist)
+			.append(titleAlbum)
+	        .append(titlePercent);
+	    titleResult.attr('colspan', 3);
+	    resultRow.append(titleResult);
+	    resultHeader.append(resultRow);
+	    resultHeader.append(headerRow);
+	    for (var e = 0; e < aExacts.length; e++) {
+			var sArtist = aExacts[0];
+			var aDiscography = oExacts[sArtist];
+			for (var d = 0; d < aDiscography.length; d++) {
+				var sDisc = aDiscography[d];
+				var aNumbers = o2TrackR.albumSuccessRate(sArtist, sDisc);
+				var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
+				var exactMatch = $('<tr></tr>');
+			    var artist = $('<td></td>').addClass('results-table')
+					.addClass('link-cell')
+					.append(sArtist)
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handleArtistClick);
+				var album = $('<td></td>').addClass('results-table')
+					.addClass('link-cell')
+					.append(sDisc)
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handleAlbumClick);
+			    var percentage = $('<td></td>').addClass('results-table')
+					.addClass('link-cell')
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handlePercentageClick)
+					.append(sPercent);
+			    exactMatch.append(artist)
+					.append(album)
+					.append(percentage);
+				tbody.append(exactMatch);
+			}
+		}
+	}
+    table.append(resultHeader);
+    table.append(tbody);
+    var lineBreak1 = $('</br>');
+    $('#results-div').append(lineBreak1);
+    $('#results-div').append(table);
+    var lineBreak2 = $('</br>');
+    $('#results-div').append(lineBreak2);
+	var aPartials = Object.keys(oPartials);
+	aPartials.sort(function(a, b){return b-a});
+    if (o2TrackR.arePartialsNeeded(aExacts, aPartials) === false) {
+		partialRow.append(partialResult);
+		partialHeader.append(partialRow);
+		var partialEmptyRow = $('<tr></tr>');
+		var partialEmptyCell = $('<td>no partial matches</td>').addClass('results-table');
+		partialEmptyRow.append(partialEmptyCell);
+		partialTbody.append(partialEmptyRow);
+		partialTable.append(partialTbody);
+	} else if (o2TrackR.arePartialsNeeded(aExacts, aPartials) === true) {
+		var partialArtist = $(o2TrackR.sCreator)
+			.addClass('results-table');
+		var partialAlbum = $(o2TrackR.sCollection)
+			.addClass('results-table');
+		var partialPercent = $('<th>Percent</th>')
+			.addClass('results-table');
+		var fieldsRow = $('<tr></tr>');
+		fieldsRow.append(partialArtist)
+			.append(partialAlbum)
+			.append(partialPercent);
+		partialResult.attr('colspan', 3);
+		partialRow.append(partialResult);
+		partialHeader.append(partialRow);
+		partialHeader.append(fieldsRow);
+		partialTable.append(partialHeader);
+		for (var p = 0; p < aPartials.length; p++) {
+			var iScore = aPartials[p];
+			var aArtists = Object.keys(oPartials[iScore]);
+			aArtists.sort();
+			for (var a = 0; a < aArtists.length; a++) {
+	            var sArtist = aArtists[a];
+	            var aDiscography = oPartials[iScore][sArtist];
+	            aDiscography.sort();
+	            for (var d = 0; d < aDiscography.length; d++) {
+					var sDisc = aDiscography[d]
+					var aNumbers = o2TrackR.albumSuccessRate(sArtist, sDisc);
+					var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
+					var partialMatch = $('<tr></tr>');
+				    var artist = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.append(sArtist)
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handleArtistClick);
+					var album = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.append(sDisc)
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handleAlbumClick);
+				    var percentage = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handlePercentageClick)
+						.append(sPercent);
+				    partialMatch.append(artist)
+						.append(album)
+						.append(percentage);
+					partialTbody.append(partialMatch);
+				}
+			}
+		}
+	}
+	partialTable.append(partialHeader);
+	partialTable.append(partialTbody);
+    var lineBreak3 = $('</br>');
+    $('#results-div').append(lineBreak3);
+    $('#results-div').append(partialTable);
 };
 
 o2TrackR.findArtist = function(sArtist) {
-	var sLowInput = sArtist.toLowerCase();
-    var oMusic = o2TrackR.oCurrentReviews;
-	var aArtists = Object.keys(oMusic);
-	var aExacts = [];
-	var aPartials = [];
-	for (var c = 0; c < aArtists.length; c++) {
-		var sCreator = aArtists[c];
-		var sLowCreator = sCreator.toLowerCase();
-		if (sLowCreator === sLowInput) {
-			aExacts.push(aArtists[c]);
-		} else if (sLowCreator.indexOf(sLowInput) !== -1) {
-			aPartials.push(aArtists[c]);
-		}
-	}
+	var oResults = o2TrackR.returnArtist(sArtist);
+	var aExacts = oResults["exact"];
+	var oPartials = oResults["partial"];
     var titleResult = $('<th>Exact Match</th>')
         .addClass('results-table');
 	var resultRow = $('<tr></tr>');
@@ -636,8 +1021,12 @@ o2TrackR.findArtist = function(sArtist) {
 	    var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
 	    var artist = $('<td></td>').addClass('results-table')
 			.addClass('link-cell')
+			.hover(o2TrackR.handleLinkHover)
 			.on('click', o2TrackR.handleArtistClick);
-	    var percentage = $('<td></td>').addClass('results-table');
+	    var percentage = $('<td></td>').addClass('results-table')
+			.addClass('link-cell')
+			.hover(o2TrackR.handleLinkHover)
+			.on('click', o2TrackR.handlePercentageClick);
 	    artist.append(aExacts[0]);
 	    percentage.append(sPercent);
 	    var exactMatch = $('<tr></tr>');
@@ -652,7 +1041,8 @@ o2TrackR.findArtist = function(sArtist) {
     $('#results-div').append(table);
     var lineBreak2 = $('</br>');
     $('#results-div').append(lineBreak2);
-    if (aPartials.length === 0) {
+    var aScores = Object.keys(oPartials);
+    if (aScores.length === 0) {
 		partialRow.append(partialResult);
 		partialHeader.append(partialRow);
 		var partialEmptyRow = $('<tr></tr>');
@@ -660,7 +1050,7 @@ o2TrackR.findArtist = function(sArtist) {
 		partialEmptyRow.append(partialEmptyCell);
 		partialTbody.append(partialEmptyRow);
 		partialTable.append(partialTbody);
-	} else if (aPartials.length !== 0) {
+	} else if (aScores.length !== 0) {
 		var partialArtist = $(o2TrackR.sCreator)
 			.addClass('results-table');
 		var partialPercent = $('<th>Percent</th>')
@@ -673,22 +1063,32 @@ o2TrackR.findArtist = function(sArtist) {
 		partialHeader.append(partialRow);
 		partialHeader.append(fieldsRow);
 		partialTable.append(partialHeader);
-		for (var p = 0; p < aPartials.length; p++) {
-            var sArtist = aPartials[p];
-            var aNumbers = o2TrackR.artistSuccessRate(sArtist);
-            var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
-            var tempRow = $('<tr></tr>');
-            var partialArtist = $('<td></td>')
-                .addClass('results-table')
-                .addClass('link-cell')
-                .append(sArtist)
-				.on('click', o2TrackR.handleArtistClick);
-            var partialPercent = $('<td></td>')
-                .addClass('results-table')
-                .append(sPercent);
-            tempRow.append(partialArtist)
-                .append(partialPercent)
-            partialTbody.append(tempRow);
+		aScores.sort(function(a, b){return b-a});
+		for (var s = 0; s < aScores.length; s++) {
+			var sScore = aScores[s];
+			var aArtists = oPartials[sScore];
+			aArtists.sort();
+			for (var a = 0; a < aArtists.length; a++) {
+	            var sArtist = aArtists[a];
+	            var aNumbers = o2TrackR.artistSuccessRate(sArtist);
+	            var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
+	            var tempRow = $('<tr></tr>');
+	            var partialArtist = $('<td></td>')
+	                .addClass('results-table')
+	                .addClass('link-cell')
+	                .append(sArtist)
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handleArtistClick);
+	            var partialPercent = $('<td></td>')
+	                .addClass('results-table')
+					.addClass('link-cell')
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handlePercentageClick)
+	                .append(sPercent);
+	            tempRow.append(partialArtist)
+	                .append(partialPercent)
+	            partialTbody.append(tempRow);
+			}
 		}
 	}
 	partialTable.append(partialHeader);
@@ -696,101 +1096,475 @@ o2TrackR.findArtist = function(sArtist) {
 	$('#results-div').append(partialTable);
 };
 
+o2TrackR.findPercentage = function(sPercentage) {
+	var oMusic = o2TrackR.oCurrentReviews;
+	var aArtists = Object.keys(oMusic);
+	var aCreators = [];
+	var oAlbums = {};
+	for (var a = 0; a < aArtists.length; a++) {
+		var sArtist = aArtists[a];
+		var aNumbers = o2TrackR.artistSuccessRate(sArtist);
+		var sArtistPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
+		if (sArtistPercent === sPercentage) {
+			aCreators.push(sArtist);
+		}
+		var oDiscography = oMusic[sArtist];
+		var aAlbums = Object.keys(oDiscography);
+		for (var r = 0; r < aAlbums.length; r++) {
+			var sAlbum = aAlbums[r];
+			var aIntegers = o2TrackR.albumSuccessRate(sArtist, sAlbum);
+			var sAlbumPercent = o2TrackR.calculatePercentage(aIntegers[0], aIntegers[1]);
+			if (sAlbumPercent === sPercentage) {
+				var aKeys = Object.keys(oAlbums);
+				if (aKeys.indexOf(sArtist) === -1) {
+					oAlbums[sArtist] = [];
+				}
+				oAlbums[sArtist].push(sAlbum);
+			}
+		}
+	}
+	oAlbums = o2TrackR.deduplicatePercentages(oAlbums);
+    var artistResult = $('<th>Artist Percentages</th>')
+        .addClass('results-table');
+	var artistRow = $('<tr></tr>');
+    var artistHeader = $('<thead></thead>');
+    var artistTable = $('<table></table>')
+        .addClass('results-table');
+    var artistTbody = $('<tbody></tbody>');
+	if (aCreators.length === 0) {
+		artistRow.append(artistResult);
+		artistHeader.append(artistRow);
+		var emptyRow = $('<tr></tr>');
+		var emptyCell = $('<td>no matches</td>').addClass('results-table');
+		emptyRow.append(emptyCell);
+		artistTbody.append(emptyRow);
+		artistTable.append(artistTbody);
+	} else {
+		aCreators.sort();
+	    var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
+	    var titlePercent = $('<th>Percent</th>').addClass('results-table');
+	    var headerRow = $('<tr></tr>');
+	    headerRow.append(titleArtist)
+	        .append(titlePercent);
+	    artistResult.attr('colspan', 2);
+	    artistRow.append(artistResult);
+	    artistHeader.append(artistRow);
+	    artistHeader.append(headerRow);
+	    for (var c = 0; c < aCreators.length; c++) {
+			var artistMatch = $('<tr></tr>');
+			var sCreator = aCreators[c];
+			var artistRow = $('<tr></tr>');
+		    var creator = $('<td></td>').addClass('results-table')
+				.addClass('link-cell')
+				.append(sCreator)
+				.attr('id', 'displayed-artist')
+				.hover(o2TrackR.handleLinkHover)
+				.on('click', o2TrackR.handleArtistClick);
+		    var percentage = $('<td></td>').addClass('results-table')
+				.addClass('link-cell')
+				.append(sPercentage)
+				.hover(o2TrackR.handleLinkHover)
+				.on('click', o2TrackR.handlePercentageClick);
+			artistMatch.append(creator)
+				.append(percentage);
+			artistTbody.append(artistMatch);
+		}
+	}
+    artistTable.append(artistHeader);
+    artistTable.append(artistTbody);
+    var lineBreak1 = $('</br>');
+    $('#results-div').append(lineBreak1);
+    $('#results-div').append(artistTable);
+    var lineBreak2 = $('</br>');
+    $('#results-div').append(lineBreak2);
+    var albumResult = $('<th>Album Percentages</th>')
+	    .addClass('results-table');
+	var albumRow = $('<tr></tr>');
+	var albumHeader = $('<thead></thead>');
+    var albumTable = $('<table></table>')
+        .addClass('results-table');
+    var albumTbody = $('<tbody></tbody>');
+	var aCreators = Object.keys(oAlbums);
+	if (aCreators.length === 0) {
+		albumRow.append(albumResult);
+		albumHeader.append(albumRow);
+		var emptyAlbumRow = $('<tr></tr>');
+		var emptyAlbumCell = $('<td>no matches</td>').addClass('results-table');
+		emptyAlbumRow.append(emptyAlbumCell);
+		albumTbody.append(emptyAlbumRow);
+		albumTable.append(albumTbody);
+	} else {
+		aCreators.sort();
+	    var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
+		var titleAlbum = $(o2TrackR.sCollection).addClass('results-table');
+	    var titlePercent = $('<th>Percent</th>').addClass('results-table');
+	    var headerRow = $('<tr></tr>');
+	    headerRow.append(titleArtist)
+			.append(titleAlbum)
+	        .append(titlePercent);
+	    albumResult.attr('colspan', 3);
+	    albumRow.append(albumResult);
+	    albumHeader.append(albumRow);
+	    albumHeader.append(headerRow);
+		for (var c = 0; c < aCreators.length; c++) {
+			var sCreator = aCreators[c];
+			var aDiscography = oAlbums[sCreator];
+			aDiscography.sort(function(a, b){return b-a});
+			for (var d = 0; d < aDiscography.length; d++) {
+				var sDisc = aDiscography[d];
+				var albumMatch = $('<tr></tr>');
+			    var creator = $('<td></td>').addClass('results-table')
+					.addClass('link-cell')
+					.append(sCreator)
+					.attr('id', 'displayed-artist')
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handleArtistClick);
+				var album = $('<td></td>').addClass('results-table')
+					.addClass('link-cell')
+					.append(sDisc)
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handleAlbumClick);
+			    var percentage = $('<td></td>').addClass('results-table')
+					.addClass('link-cell')
+					.append(sPercentage)
+					.hover(o2TrackR.handleLinkHover)
+					.on('click', o2TrackR.handlePercentageClick);
+				albumMatch.append(creator)
+					.append(album)
+					.append(percentage);
+				albumTbody.append(albumMatch);
+			}
+	    }
+	}
+	albumTable.append(albumHeader);
+	albumTable.append(albumTbody);
+    var lineBreak3 = $('</br>');
+    $('#results-div').append(lineBreak3);
+    $('#results-div').append(albumTable);
+};
+
 o2TrackR.findSong = function(sSong) {
+	var oResults = o2TrackR.returnSong(sSong);
+	console.log(oResults);
+	var oExacts = oResults["exact"];
+	oExacts = o2TrackR.deduplicateSongExacts(oExacts);
+	var oPartials = oResults["partial"];
+	oPartials = o2TrackR.deduplicatePartials(oPartials);
+    var titleResult = $('<th>Exact Matches</th>')
+        .addClass('results-table');
+	var resultRow = $('<tr></tr>');
+    var resultHeader = $('<thead></thead>');
+    var table = $('<table></table>')
+        .addClass('results-table');
+    var tbody = $('<tbody></tbody>');
+    var partialResult = $('<th>Partial Matches</th>')
+	    .addClass('results-table');
+	var partialRow = $('<tr></tr>');
+	var partialHeader = $('<thead></thead>');
+    var partialTable = $('<table></table>')
+        .addClass('results-table');
+    var partialTbody = $('<tbody></tbody>');
     var oMusic = o2TrackR.oCurrentReviews;
-    var aArtists = Object.keys(oMusic);
-    var sLowInput = sSong.toLowerCase();
-    var oResults = {};
-    for (var a = 0; a < aArtists.length; a++) {
-        var sArtist = aArtists[a];
-        var oAlbums = oMusic[sArtist];
-        var aRecords = Object.keys(oAlbums);
-        for (var r = 0; r < aRecords.length; r++) {
-            var sRecord = aRecords[r];
-            var oAlbum = oAlbums[sRecord];
-            if (sArtist === o2TrackR.sVarious) {
-                var aSongs = [];
-                var aCompArtists = Object.keys(oAlbum);
-                for (var ca = 0; ca < aCompArtists.length; ca++) {
-                    var sCompArtist = aCompArtists[ca];
-                    var oTracks = oAlbum[sCompArtist];
-                    var aTracks = Object.keys(oTracks);
-                    for (var t = 0; t < aTracks.length; t++) {
-                        var sTrack = aTracks[t];
-                        aSongs.push(sTrack);
-                    }
-                }
-            } else {
-                var aSongs = Object.keys(oAlbum);
-            }
-            for (var s = 0; s < aSongs.length; s++) {
-                var aResultists = Object.keys(oResults);
-                var sSong = aSongs[s];
-                var sLowResult = sSong.toLowerCase();
-                if (sLowResult.indexOf(sLowInput) !== -1) {
-                    if (sArtist !== o2TrackR.sVarious) {
-                        var sReview = oAlbum[sSong];
-                    } else {
-                        for (var ca = 0; ca < aCompArtists.length; ca++) {
-                            var sCompArtist = aCompArtists[ca];
-                            var oTracks = oAlbum[sCompArtist];
-                            var aTracks = Object.keys(oTracks);
-                            for (var t = 0; t < aTracks.length; t++) {
-                                var sTrack = aTracks[t];
-                                if (sTrack === sSong) {
-                                    var sReview = oTracks[sTrack];
-                                }
-                            }
-                        }
-                    }
-                    if (aResultists.indexOf(sArtist) === -1) {
-                        oResults[sArtist] = {};
-                        oResults[sArtist][sRecord] = {};
-                        oResults[sArtist][sRecord][sSong] = sReview;
-                    } else {
-                        var aDiscography = Object.keys(oResults[sArtist]);
-                        if (aDiscography.indexOf(sRecord) === -1) {
-                            oResults[sArtist][sRecord] = {};
-                            oResults[sArtist][sRecord][sSong] = sReview;
-                        } else {
-                            oResults[sArtist][sRecord][sSong] = sReview;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    var aResultists = Object.keys(oResults);
-    if (aResultists.indexOf(o2TrackR.sVarious) !== -1) {
-        var aCompilations = Object.keys(oResults[o2TrackR.sVarious]);
-        for (var a = 0; a < aResultists.length; a++) {
-            var sArtist = aResultists[a];
-            if (sArtist !== o2TrackR.sVarious) {
-                var oArtist = oResults[sArtist];
-                var aDiscography = Object.keys(oArtist);
-                for (var d = 0; d < aDiscography.length; d++) {
-                    var sDisc = aDiscography[d];
-                    if (aCompilations.indexOf(sDisc) !== -1) {
-                        var aCompArtists = Object.keys(oMusic[o2TrackR.sVarious][sDisc]);
-                        if (aCompArtists.indexOf(sArtist) !== -1) {
-                            delete oResults[sArtist][sDisc];
-                        }
-                    }
-                }
-            }
-        }
-    }
-    //REMOVE EMPTY ARTIST OBJECTS
-    aResultists = Object.keys(oResults);
-    for (var a = 0; a < aResultists.length; a++) {
-        var sArtist = aResultists[a];
-        var oArtist = oResults[sArtist];
-        var aDiscography = Object.keys(oArtist);
-        if (aDiscography.length === 0) {
-            delete oResults[sArtist];
-        }
-    }
-    o2TrackR.displayFoundSongs(oResults);
+    var aExacts = Object.keys(oExacts);
+	if (aExacts.length === 0) {
+		resultRow.append(titleResult);
+		resultHeader.append(resultRow);
+		var emptyRow = $('<tr></tr>');
+		var emptyCell = $('<td>no exact matches</td>').addClass('results-table');
+		emptyRow.append(emptyCell);
+		tbody.append(emptyRow);
+		table.append(tbody);
+	} else if (aExacts.length !== 0) {
+	    var titleArtist = $(o2TrackR.sCreator).addClass('results-table');
+	    var titleAlbum = $(o2TrackR.sCollection).addClass('results-table');
+	    var titlePercent = $('<th>Percent</th>').addClass('results-table');
+	    var titleSong = $(o2TrackR.sWork).addClass('results-table');
+	    var titleReview = $('<th>Review</th>').addClass('results-table');
+	    var headerRow = $('<tr></tr>');
+	    headerRow.append(titleArtist)
+			.append(titleAlbum)
+	        .append(titlePercent)
+	        .append(titleSong)
+	        .append(titleReview);
+	    titleResult.attr('colspan', 5);
+	    resultRow.append(titleResult);
+	    resultHeader.append(resultRow);
+	    resultHeader.append(headerRow);
+	    for (var e = 0; e < aExacts.length; e++) {
+			var sArtist = aExacts[e];
+			var aDiscography = Object.keys(oExacts[sArtist]);
+			for (var d = 0; d < aDiscography.length; d++) {
+				var sDisc = aDiscography[d];
+				var aNumbers = o2TrackR.albumSuccessRate(sArtist, sDisc);
+				var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
+				var exactMatch = $('<tr></tr>');
+				var aSongs = Object.keys(oExacts[sArtist][sDisc]);
+				for (var s = 0; s < aSongs.length; s++) {
+					var sSong = aSongs[s];
+					var sReview = oExacts[sArtist][sDisc][sSong];
+				    var artist = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.append(sArtist)
+						.attr('id', 'displayed-artist')
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handleArtistClick);
+					var album = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.append(sDisc)
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handleAlbumClick);
+				    var percentage = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handlePercentageClick)
+						.append(sPercent);
+					var song = $('<td></td>').addClass('results-table')
+						.addClass('link-cell')
+						.hover(o2TrackR.handleLinkHover)
+						.on('click', o2TrackR.handleSongClick)
+						.append(sSong);
+					var review = $('<td></td>').addClass('results-table')
+						.append(sReview);
+				    exactMatch.append(artist)
+						.append(album)
+						.append(percentage)
+						.append(song)
+						.append(review);
+					tbody.append(exactMatch);
+				}
+			}
+		}
+	}
+    table.append(resultHeader);
+    table.append(tbody);
+    var lineBreak1 = $('</br>');
+    $('#results-div').append(lineBreak1);
+    $('#results-div').append(table);
+    var lineBreak2 = $('</br>');
+    $('#results-div').append(lineBreak2);
+	var aPartials = Object.keys(oPartials);
+	aPartials.sort(function(a, b){return b-a});
+    if (o2TrackR.arePartialsNeeded(aExacts, aPartials) === false) {
+		partialRow.append(partialResult);
+		partialHeader.append(partialRow);
+		var partialEmptyRow = $('<tr></tr>');
+		var partialEmptyCell = $('<td>no partial matches</td>').addClass('results-table');
+		partialEmptyRow.append(partialEmptyCell);
+		partialTbody.append(partialEmptyRow);
+		partialTable.append(partialTbody);
+	} else if (o2TrackR.arePartialsNeeded(aExacts, aPartials) === true) {
+		var partialArtist = $(o2TrackR.sCreator)
+			.addClass('results-table');
+		var partialAlbum = $(o2TrackR.sCollection)
+			.addClass('results-table');
+		var partialPercent = $('<th>Percent</th>')
+			.addClass('results-table');
+		var partialSong = $('<th>Song</th>')
+			.addClass('results-table');
+		var partialReview = $('<th>Review</th>')
+			.addClass('results-table');
+		var fieldsRow = $('<tr></tr>');
+		fieldsRow.append(partialArtist)
+			.append(partialAlbum)
+			.append(partialPercent)
+			.append(partialSong)
+			.append(partialReview);
+		partialResult.attr('colspan', 5);
+		partialRow.append(partialResult);
+		partialHeader.append(partialRow);
+		partialHeader.append(fieldsRow);
+		partialTable.append(partialHeader);
+		for (var p = 0; p < aPartials.length; p++) {
+			var iScore = aPartials[p];
+			var aArtists = Object.keys(oPartials[iScore]);
+			aArtists.sort();
+			for (var a = 0; a < aArtists.length; a++) {
+	            var sArtist = aArtists[a];
+	            var aDiscography = Object.keys(oPartials[iScore][sArtist]);
+	            aDiscography.sort();
+	            for (var d = 0; d < aDiscography.length; d++) {
+					var sDisc = aDiscography[d];
+					var aNumbers = o2TrackR.albumSuccessRate(sArtist, sDisc);
+					var sPercent = o2TrackR.calculatePercentage(aNumbers[0], aNumbers[1]);
+					var aSongs = Object.keys(oPartials[iScore][sArtist][sDisc]);
+					for (var s = 0; s < aSongs.length; s++) {
+						var partialMatch = $('<tr></tr>');
+						var sSong = aSongs[s];
+						var sReview = oPartials[iScore][sArtist][sDisc][sSong];
+					    var artist = $('<td></td>').addClass('results-table')
+							.addClass('link-cell')
+							.append(sArtist)
+							.hover(o2TrackR.handleLinkHover)
+							.on('click', o2TrackR.handleArtistClick);
+						var album = $('<td></td>').addClass('results-table')
+							.addClass('link-cell')
+							.append(sDisc)
+							.hover(o2TrackR.handleLinkHover)
+							.on('click', o2TrackR.handleAlbumClick);
+					    var percentage = $('<td></td>').addClass('results-table')
+							.addClass('link-cell')
+							.hover(o2TrackR.handleLinkHover)
+							.on('click', o2TrackR.handlePercentageClick)
+							.append(sPercent);
+						var song = $('<td></td>').addClass('results-table')
+							.addClass('link-cell')
+							.append(sSong)
+							.hover(o2TrackR.handleLinkHover)
+							.on('click', o2TrackR.handleSongClick);
+						var review = $('<td></td>').addClass('results-table')
+							.append(sReview);
+					    partialMatch.append(artist)
+							.append(album)
+							.append(percentage)
+							.append(song)
+							.append(review);
+						partialTbody.append(partialMatch);
+					}
+				}
+			}
+		}
+	}
+	partialTable.append(partialHeader);
+	partialTable.append(partialTbody);
+    var lineBreak3 = $('</br>');
+    $('#results-div').append(lineBreak3);
+    $('#results-div').append(partialTable);
+};
+
+o2TrackR.floatifyAlbumRelevance = function(oPartials) {
+	var aScores = Object.keys(oPartials);
+	var iDivisor = o2TrackR.getFloatifyDivisor(aScores);
+	var oNewPartials = {};
+	for (var s = 0; s < aScores.length; s++) {
+		var sScore = aScores[s];
+		var iRelevance = o2TrackR.calculateRelevance(sScore, iDivisor);
+		var aNewScores = Object.keys(oNewPartials);
+		oNewPartials[iRelevance] = {};
+		var aArtists = Object.keys(oPartials[sScore]);
+		for (var a = 0; a < aArtists.length; a++) {
+			var sArtist = aArtists[a];
+			var aNewArtists = Object.keys(oNewPartials[iRelevance]);
+			oNewPartials[iRelevance][sArtist] = [];
+			var aRecords = oPartials[sScore][sArtist];
+			for (var r = 0; r < aRecords.length; r++) {
+				var sRecord = aRecords[r];
+				oNewPartials[iRelevance][sArtist].push(sRecord);
+			}
+		}
+	}
+	oNewPartials = o2TrackR.deleteUnneededPartials(oNewPartials);
+	return oNewPartials;
+};
+
+o2TrackR.floatifyArtistRelevance = function(oPartials) {
+	var aScores = Object.keys(oPartials);
+	var iDivisor = o2TrackR.getFloatifyDivisor(aScores);
+	var oNewPartials = {};
+	for (var s = 0; s < aScores.length; s++) {
+		var sScore = aScores[s];
+		var iRelevance = o2TrackR.calculateRelevance(sScore, iDivisor);
+		var aNewScores = Object.keys(oNewPartials);
+		oNewPartials[iRelevance] = [];
+		var aArtists = oPartials[sScore];
+		for (var a = 0; a < aArtists.length; a++) {
+			var sArtist = aArtists[a];
+			oNewPartials[iRelevance].push(sArtist);
+		}
+	}
+	oNewPartials = o2TrackR.deleteUnneededPartials(oNewPartials);
+	return oNewPartials;
+};
+
+o2TrackR.floatifySongRelevance = function(oPartials) {
+	var aScores = Object.keys(oPartials);
+	var iDivisor = o2TrackR.getFloatifyDivisor(aScores);
+	var oNewPartials = {};
+	for (var s = 0; s < aScores.length; s++) {
+		var sScore = aScores[s];
+		var iRelevance = o2TrackR.calculateRelevance(sScore, iDivisor);
+		oNewPartials[iRelevance] = {};
+		var aArtists = Object.keys(oPartials[sScore]);
+		for (var a = 0; a < aArtists.length; a++) {
+			var sArtist = aArtists[a];
+			oNewPartials[iRelevance][sArtist] = {};
+			var aRecords = Object.keys(oPartials[sScore][sArtist]);
+			for (var r = 0; r < aRecords.length; r++) {
+				var sRecord = aRecords[r];
+				oNewPartials[iRelevance][sArtist][sRecord] = {};
+				var aWorks = Object.keys(oPartials[sScore][sArtist][sRecord]);
+				for (var w = 0; w < aWorks.length; w++) {
+					var sSong = aWorks[w];
+					var sReview = oPartials[sScore][sArtist][sRecord][sSong];
+					oNewPartials[iRelevance][sArtist][sRecord][sSong] = sReview;
+				}
+			}
+		}
+	}
+	oNewPartials = o2TrackR.deleteUnneededPartials(oNewPartials);
+	return oNewPartials;
+};
+
+o2TrackR.getReview = function(sArtist, oAlbum, sSong) {
+	if (sArtist !== o2TrackR.sVarious) {
+		var sReview = oAlbum[sSong];
+	} else {
+		var aCompArtists = Object.keys(oAlbum);
+		for (var ca = 0; ca < aCompArtists.length; ca++) {
+			var sCompArtist = aCompArtists[ca];
+			var oTracks = oAlbum[sCompArtist];
+			var aTracks = Object.keys(oTracks);
+			if (aTracks.indexOf(sSong) !== -1) {
+				var sReview = oTracks[sSong];
+			}
+		}
+	}
+	return sReview;
+};
+
+o2TrackR.getCompilationSongs = function(oAlbum) {
+	var aCompArtists = Object.keys(oAlbum);
+	var aSongs = [];
+	for (var ca = 0; ca < aCompArtists.length; ca++) {
+		var sCompArtist = aCompArtists[ca];
+		var oCompArtist = oAlbum[sCompArtist];
+		var aArtistSongs = Object.keys(oCompArtist);
+		for (var as = 0; as < aArtistSongs.length; as++) {
+			var sTrack = aArtistSongs[as];
+			aSongs.push(sTrack);
+		}
+	}
+	return aSongs;
+};
+
+o2TrackR.getFloatifyDivisor = function(aScores) {
+	var iDigits = 1;
+	for (var s = 0; s < aScores.length; s++) {
+		var sScore = aScores[s];
+		var aStrings = sScore.split(" ");
+		var sSecond = aStrings[1];
+		if (sSecond.length > iDigits) {
+			iDigits = sSecond.length;
+		}
+	}
+	var iDivisor = 1;
+	for (var d = 0; d < iDigits; d++) {
+		iDivisor *= 10;
+	}
+	return iDivisor;
+};
+
+o2TrackR.getTrackArtist = function(oAlbum, sSong) {
+	var aCompArtists = Object.keys(oAlbum);
+	var sTrackArtist = "";
+	for (var ca = 0; ca < aCompArtists.length; ca++) {
+		var sCompArtist = aCompArtists[ca];
+		var oTracks = oAlbum[sCompArtist];
+		var aTracks = Object.keys(oTracks);
+		if (aTracks.indexOf(sSong) !== -1) {
+			sTrackArtist = sCompArtist;
+		}
+	}
+	return sTrackArtist;
 };
 
 o2TrackR.handleAddButtonClick = function(event) {
@@ -861,6 +1635,30 @@ o2TrackR.handleAddButtonClick = function(event) {
 	}
 };
 
+o2TrackR.handleAlbumClick = function(event) {
+	event.stopPropagation();
+	var albumCell = $(event.target);
+	var sAlbum = albumCell.text();
+	var artistCell = albumCell.prev();
+	var sArtist = artistCell.text();
+	if (sArtist === "") {
+		var correct = $('#displayed-artist');
+		sArtist = correct.text();
+	}
+	var oMusic = o2TrackR.oCurrentReviews;
+	var oVarious = oMusic[o2TrackR.sVarious];
+	var aCompilations = Object.keys(oVarious);
+	if (aCompilations.indexOf(sAlbum) !== -1) {
+		var oCompilation = oVarious[sAlbum];
+		var aTrackArtists = Object.keys(oCompilation);
+		if (aTrackArtists.indexOf(sArtist) !== -1) {
+			sArtist = o2TrackR.sVarious;
+		}
+	}
+	var aNumbers = o2TrackR.albumSuccessRate(sArtist, sAlbum);
+    o2TrackR.displayAlbum(aNumbers, sArtist, sAlbum);
+};
+
 o2TrackR.handleArtistClick = function(event) {
 	event.stopPropagation();
 	$('#results-div').empty();
@@ -887,11 +1685,13 @@ o2TrackR.handleFileUpload = function(event) {
         o2TrackR.sCollection = "<th>Album</th>";
         o2TrackR.sCreator = "<th>Artist</th>";
         o2TrackR.sVarious = "Various Artists";
+        o2TrackR.sContributor = "<th>Track Artist</th>"
         o2TrackR.sWork = "<th>Song</th>";
     } else if (o2TrackR.sReviewsName === "literature") {
         o2TrackR.sCollection = "<th>Collection</th>";
         o2TrackR.sCreator = "<th>Author</th>";
         o2TrackR.sVarious = "Various Authors";
+        o2TrackR.sContributor = "<th>Contributor</th>"
         o2TrackR.sWork = "<th>Work</th>";
     }
     o2TrackR.sFileName = sReviewsName + ".json";
@@ -900,6 +1700,47 @@ o2TrackR.handleFileUpload = function(event) {
     if ($(event.target).attr('id') === "reviews") {
         o2TrackR.reader.onload = o2TrackR.handleReviews;
     }
+};
+
+o2TrackR.handleLinkHover = function(event) {
+	var link = $(event.target);
+	link.css('cursor', 'pointer');
+};
+
+o2TrackR.handlePercentageClick = function(event) {
+	var percent = $(event.target);
+	var sPercent = percent.text();
+    $('#results-div').empty();
+	o2TrackR.findPercentage(sPercent);
+};
+
+o2TrackR.handleRadioChange = function(event) {
+	event.stopPropagation();
+	var sField = $('input[name=field]:checked').val();
+	var cell = $('#search-cell');
+	if (sField === "percentage") {
+		cell.empty();
+		var select = $('<select></select>').attr('id', 'search-input');
+		var o = 0;
+		while (o < 101) {
+			var option = $('<option></option>')
+				.val(o)
+				.html(o);
+			select.append(option);
+			o++;
+		}
+		cell.append(select);
+	} else {
+		var input = $('#search-input');
+		var sType = input.attr('type');
+		if (sType !== "text") {
+			cell.empty();
+			var text = $('<input></input>')
+				.attr('type', 'text')
+				.attr('id', 'search-input');
+			cell.append(text);
+		}
+	}
 };
 
 o2TrackR.handleReviews = function(event) {
@@ -932,24 +1773,247 @@ o2TrackR.handleSearchButtonClick = function(event) {
 		o2TrackR.oCurrentReviews = {};
 	}
     $('#results-div').empty();
-    var sSong = $('#song-text').val();
-    var sArtist = $('#artist-text').val();
-    var sAlbum = $('#album-text').val();
-    if (sSong === "") {
-        if (sArtist !== "" && sAlbum !== "") {
-            var aNumbers = o2TrackR.albumSuccessRate(sArtist, sAlbum);
-            o2TrackR.displayAlbum(aNumbers, sArtist, sAlbum);
-        } else if (sArtist !== "" && sAlbum === "") {
-            //o2TrackR.displayArtist(sArtist);
-            o2TrackR.findArtist(sArtist);
-        } else if (sArtist === "" && sAlbum !== "") {
-            o2TrackR.findAlbum(sAlbum);
-        } else if (sArtist === "" && sAlbum === "") {
-            o2TrackR.displayAll();
+    var input = $('#search-input');
+    var sType = input.attr('type');
+    if (sType === "text") {
+		var sText = input.val();
+		if (sText === "") {
+			o2TrackR.displayAll();
+		} else {
+			var sValue = $('input[name=field]:checked').val();
+			if (sValue === "creator") {
+				o2TrackR.findArtist(sText);
+			} else if (sValue === "collection") {
+				o2TrackR.findAlbum(sText);
+			} else {
+				o2TrackR.findSong(sText);
+			}
+		}
+	} else {
+		var dropdown = $('#search-input');
+		var sPercentage = dropdown.val();
+		o2TrackR.findPercentage(sPercentage);
+	}
+};
+
+o2TrackR.handleSongClick = function(event) {
+	event.stopPropagation();
+	$('#results-div').empty();
+	var cell = $(event.target)
+	var sSong = cell.text();
+	o2TrackR.findSong(sSong);
+};
+
+o2TrackR.removeArticles = function(sString) {
+	var aArray = sString.split(" ");
+	var aNewArray = [];
+	var aArticles = ["a", "an", "the"];
+	for (var w = 0; w < aArray.length; w++) {
+		var sWord = aArray[w];
+		if (aArticles.indexOf(sWord) === -1) {
+			aNewArray.push(sWord);
+		}
+	}
+	if (aNewArray.length > 0) {
+		return aNewArray;
+	} else {
+		return aArray;
+	}
+};
+
+o2TrackR.returnAlbum = function(sAlbum) {
+	var sLowInput = sAlbum.toLowerCase();
+	var oMusic = o2TrackR.oCurrentReviews;
+    var oExacts = {}
+    var oPartials = {}
+    var aArtists = Object.keys(oMusic);
+    for (var a = 0; a < aArtists.length; a++) {
+        var sArtist = aArtists[a];
+        var oAlbums = oMusic[sArtist];
+        var aRecords = Object.keys(oAlbums);
+        for (var r = 0; r < aRecords.length; r++) {
+            var sRecord = aRecords[r];
+            var sLowResult = sRecord.toLowerCase();
+            if (sLowResult === sLowInput) {
+				var aKeys = Object.keys(oExacts);
+				if (aKeys.indexOf(sArtist) === -1) {
+					oExacts[sArtist] = [sRecord];
+				} else {
+					oExacts[sArtist].push(sRecord);
+				}
+            } else {
+				var sRelevance = o2TrackR.determineRelevance(sLowInput, sLowResult);
+				if (sRelevance !== "0") {
+					var aScores = Object.keys(oPartials);
+					if (aScores.indexOf(sRelevance) === -1) {
+						oPartials[sRelevance] = {};
+						oPartials[sRelevance][sArtist] = [sRecord];
+					} else {
+						var aRelevantArtists = Object.keys(oPartials[sRelevance])
+						if (aRelevantArtists.indexOf(sArtist) === -1) {
+							oPartials[sRelevance][sArtist] = [sRecord];
+						} else {
+							oPartials[sRelevance][sArtist].push(sRecord);
+						}
+					}
+				}
+            }
         }
-    } else {
-        o2TrackR.findSong(sSong);
     }
+    var oPartials = o2TrackR.floatifyAlbumRelevance(oPartials);
+    return {"exact": oExacts, "partial": oPartials};
+};
+
+o2TrackR.returnArtist = function(sArtist) {
+	var sLowInput = sArtist.toLowerCase();
+    var oMusic = o2TrackR.oCurrentReviews;
+	var aArtists = Object.keys(oMusic);
+	var aExacts = [];
+	var oPartials = {};
+	for (var c = 0; c < aArtists.length; c++) {
+		var sCreator = aArtists[c];
+		var sLowCreator = sCreator.toLowerCase();
+		if (sLowCreator === sLowInput) {
+			aExacts.push(aArtists[c]);
+		} else {
+			var sRelevance = o2TrackR.determineRelevance(sLowInput, sLowCreator);
+			if (sRelevance !== "0") {
+				var aScores = Object.keys(oPartials);
+				if (aScores.indexOf(sRelevance) === -1) {
+					oPartials[sRelevance] = [];
+					oPartials[sRelevance].push(sCreator);
+				} else {
+					var aRelevantArtists = oPartials[sRelevance];
+					if (aRelevantArtists.indexOf(sCreator) === -1) {
+						oPartials[sRelevance].push(sCreator);
+					}
+				}
+			}
+		}
+	}
+	var oPartials = o2TrackR.floatifyArtistRelevance(oPartials);
+	return {"exact": aExacts, "partial": oPartials};
+};
+
+o2TrackR.returnSong = function(sSong) {
+	var sLowInput = sSong.toLowerCase();
+	var oMusic = o2TrackR.oCurrentReviews;
+    var oExacts = {}
+    var oPartials = {}
+    var aArtists = Object.keys(oMusic);
+    for (var a = 0; a < aArtists.length; a++) {
+        var sArtist = aArtists[a];
+        var oAlbums = oMusic[sArtist];
+        var aRecords = Object.keys(oAlbums);
+        for (var r = 0; r < aRecords.length; r++) {
+            var sRecord = aRecords[r];
+            if (sArtist === o2TrackR.sVarious) {
+				var aTrackArtists = Object.keys(oMusic[sArtist][sRecord]);
+				for (var ta = 0; ta < aTrackArtists.length; ta++) {
+					var sTrackArtist = aTrackArtists[ta];
+					var aSongs = Object.keys(oMusic[sArtist][sRecord][sTrackArtist]);
+					for (var s = 0; s < aSongs.length; s++) {
+						var sSong = aSongs[s];
+						var sReview = oMusic[sArtist][sRecord][sTrackArtist][sSong];
+						var sLowResult = sSong.toLowerCase();
+						if (sLowResult === sLowInput) {
+							var aKeys = Object.keys(oExacts);
+							if (aKeys.indexOf(sArtist) === -1) {
+								oExacts[sTrackArtist] = {};
+								oExacts[sTrackArtist][sRecord] = {};
+								oExacts[sTrackArtist][sRecord][sSong] = sReview;
+							} else {
+								var aAlbumKeys = Object.keys(oExacts[sTrackArtist]);
+								if (aAlbumsKeys.indexOf(sRecord) === -1) {
+									oExacts[sTrackArtist][sRecord] = {};
+									oExacts[sTrackArtist][sRecord][sSong] = sReview;
+								} else {
+									oExacts[sTrackArtist][sRecord][sSong] = sReview;
+								}
+							}
+						} else {
+							var sRelevance = o2TrackR.determineRelevance(sLowInput, sLowResult);
+							if (sRelevance !== "0") {
+								var aScores = Object.keys(oPartials);
+								if (aScores.indexOf(sRelevance) === -1) {
+									oPartials[sRelevance] = {};
+									oPartials[sRelevance][sTrackArtist] = {};
+									oPartials[sRelevance][sTrackArtist][sRecord] = {};
+									oPartials[sRelevance][sTrackArtist][sRecord][sSong] = sReview;
+								} else {
+									var aRelevantArtists = Object.keys(oPartials[sRelevance]);
+									if (aRelevantArtists.indexOf(sArtist) === -1) {
+										oPartials[sRelevance][sTrackArtist] = {};
+										oPartials[sRelevance][sTrackArtist][sRecord] = {};
+										oPartials[sRelevance][sTrackArtist][sRecord][sSong] = sReview;
+									} else {
+										var aRelevantAlbums = Object.keys(oPartials[sRelevance][sArtist]);
+										if (aRelevantAlbums.indexOf(sRecord) === -1) {
+											oPartials[sRelevance][sTrackArtist][sRecord] = {};
+											oPartials[sRelevance][sTrackArtist][sRecord][sSong] = sReview;
+										} else {
+											oPartials[sRelevance][sTrackArtist][sRecord][sSong] = sReview;
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			} else {
+	            var aSongs = Object.keys(oMusic[sArtist][sRecord]);
+	            for (var s = 0; s < aSongs.length; s++) {
+					var sSong = aSongs[s];
+					var sReview = oMusic[sArtist][sRecord][sSong];
+					var sLowResult = sSong.toLowerCase();
+					if (sLowResult === sLowInput) {
+						var aKeys = Object.keys(oExacts);
+						if (aKeys.indexOf(sArtist) === -1) {
+							oExacts[sArtist] = {};
+							oExacts[sArtist][sRecord] = {};
+							oExacts[sArtist][sRecord][sSong] = sReview;
+						} else {
+							var aAlbumKeys = Object.keys(oExacts[sArtist]);
+							if (aAlbumKeys.indexOf(sRecord) === -1) {
+								oExacts[sArtist][sRecord] = {};
+								oExacts[sArtist][sRecord][sSong] = sReview;
+							} else {
+								oExacts[sArtist][sRecord][sSong] = sReview;
+							}
+						}
+					} else {
+						var sRelevance = o2TrackR.determineRelevance(sLowInput, sLowResult);
+						if (sRelevance !== "0") {
+							var aScores = Object.keys(oPartials);
+							if (aScores.indexOf(sRelevance) === -1) {
+								oPartials[sRelevance] = {};
+								oPartials[sRelevance][sArtist] = {};
+								oPartials[sRelevance][sArtist][sRecord] = {};
+								oPartials[sRelevance][sArtist][sRecord][sSong] = sReview;
+							} else {
+								var aRelevantArtists = Object.keys(oPartials[sRelevance]);
+								if (aRelevantArtists.indexOf(sArtist) === -1) {
+									oPartials[sRelevance][sArtist] = {};
+									oPartials[sRelevance][sArtist][sRecord] = {};
+									oPartials[sRelevance][sArtist][sRecord][sSong] = sReview;
+								} else {
+									var aRelevantAlbums = Object.keys(oPartials[sRelevance][sArtist]);
+									if (aRelevantAlbums.indexOf(sRecord) === -1) {
+										oPartials[sRelevance][sArtist][sRecord] = {};
+										oPartials[sRelevance][sArtist][sRecord][sSong] = sReview;
+									} else {
+										oPartials[sRelevance][sArtist][sRecord][sSong] = sReview;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+        }
+    }
+    var oPartials = o2TrackR.floatifySongRelevance(oPartials);
+    return {"exact": oExacts, "partial": oPartials};
 };
 
 //o2TrackR.parseAnthology();

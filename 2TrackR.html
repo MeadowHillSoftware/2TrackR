@@ -21,26 +21,20 @@
             </tr>
             <tr>
                 <td>
-                    Creator
+                    Input
                 </td>
-                <td>
-                    <input type="text" id="artist-text"/>
-                </td>
-            </tr>
-            <tr>
-                <td>
-                    Collection
-                </td>
-                <td>
-                    <input type="text" id="album-text"/>
+                <td id="search-cell">
+                    <input type="text" id="search-input"/>
                 </td>
             </tr>
             <tr>
                 <td>
-                    Work
+                    Type
                 </td>
                 <td>
-                    <input type="text" id="song-text"/>
+                    <form id="field-radio">
+                        <input type="radio" name="field" value="creator" checked>Creator</input><input type="radio" name="field" value="collection">Collection</input><input type="radio" name="field" value="work">Work</input><input type="radio" name="field" value="percentage">Percentage</input>
+                    </form>
                 </td>
             </tr>
             <tr id="button-row">
@@ -123,7 +117,7 @@
             <table>
             </table>
         </div>
-        <script src="./scripts/jquery-3.1.1.js"></script>
+        <script src="https://code.jquery.com/jquery-3.4.1.min.js"></script>
         <script src="./scripts/2TrackR.js"></script>
     </body>
 </html>
